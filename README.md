@@ -1,227 +1,222 @@
-Messaging Service — Take-Home Implementation
+# Messaging Service — Take-Home Implementation
 
-A provider-agnostic messaging microservice implemented in Python / FastAPI with PostgreSQL + SQLAlchemy.
-This README provides concise, cross-platform instructions and an overview of the system architecture.
+A provider-agnostic messaging microservice implemented in **Python / FastAPI** with **PostgreSQL + SQLAlchemy**.  
+This README provides compact cross-platform instructions and a clear architecture overview for evaluators.
 
-Quick Start Instructions (macOS/Linux & Windows)
+---
 
-All steps required to run the service end-to-end.
+# Quick Start Instructions
 
-1. Install Dependencies
+All steps required to run the service end-to-end on macOS/Linux or Windows.
 
-macOS / Linux
+---
 
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+## 1. Install Dependencies
 
+| macOS / Linux | Windows PowerShell |
+|---------------|-------------------|
+| ```bash       | ```powershell     |
+| python -m venv .venv | python -m venv .venv |
+| source .venv/bin/activate | .\.venv\Scripts\activate |
+| pip install -r requirements.txt | pip install -r requirements.txt |
+| ``` | ``` |
 
-Windows PowerShell
+---
 
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
+## 2. Start PostgreSQL
 
-2. Start PostgreSQL
-
-All Platforms
-
+```bash
 docker-compose up -d
+```
 
-3. Set DATABASE_URL
+---
 
-macOS / Linux
+## 3. Set `DATABASE_URL`
 
-export DATABASE_URL="postgresql://messaging_user:messaging_password@127.0.0.1:5432/messaging_service"
+| macOS / Linux | Windows PowerShell |
+|---------------|-------------------|
+| ```bash       | ```powershell     |
+| export DATABASE_URL="postgresql://messaging_user:messaging_password@127.0.0.1:5432/messaging_service" | $env:DATABASE_URL = "postgresql://messaging_user:messaging_password@127.0.0.1:5432/messaging_service" |
+| ``` | ``` |
 
+---
 
-Windows PowerShell
+## 4. Start the API Server
 
-$env:DATABASE_URL = "postgresql://messaging_user:messaging_password@127.0.0.1:5432/messaging_service"
-
-4. Start the API Server
-
-macOS / Linux
-
-./bin/start.sh
-
-
-Windows PowerShell
-
-uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
-
+| macOS / Linux | Windows PowerShell |
+|---------------|-------------------|
+| ```bash       | ```powershell     |
+| ./bin/start.sh | uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload |
+| ``` | ``` |
 
 Health check:
-
+```bash
 curl http://127.0.0.1:8080/healthz
+```
 
-5. Run End-to-End Tests
+---
 
-macOS / Linux
+## 5. Run End-to-End Tests
 
-./bin/test.sh
+| macOS / Linux | Windows PowerShell |
+|---------------|-------------------|
+| ```bash       | ```powershell     |
+| ./bin/test.sh | Set-ExecutionPolicy Bypass -Scope Process -Force |
+|               | .\bin\test.ps1 |
+| ``` | ``` |
 
+---
 
-Windows PowerShell
+## 6. Run Pytest Suite
 
-Set-ExecutionPolicy Bypass -Scope Process -Force
-.\bin\test.ps1
-
-6. Run Pytest
-
-All Platforms
-
+```bash
 pytest -q
+```
 
-7. Optional: Reset the Database (for cold-start testing)
+---
 
-In psql or any SQL client:
+## 7. Optional: Reset Database Tables
 
+If you want to validate cold-start behavior:
+
+```sql
 drop table contacts cascade;
 drop table conversation_participants cascade;
 drop table messages cascade;
 drop table conversations cascade;
+```
 
+Restart server using the commands in step 4.
 
-Restart the server and re-run tests.
+---
 
-Features
-Messaging API
+# Features
 
-POST /api/messages/sms
+### Messaging API
+- `POST /api/messages/sms`
+- `POST /api/messages/email`
 
-POST /api/messages/email
+### Webhooks
+- `POST /api/webhooks/sms`
+- `POST /api/webhooks/email`
 
-Webhooks
+### Conversations
+- Long-lived, persistent threads  
+- Shared across SMS, MMS, Email  
+- Keyed by `(customer_address, contact_address)`
 
-POST /api/webhooks/sms
+### Idempotency
+Inbound messages deduplicated on:
 
-POST /api/webhooks/email
-
-Conversations
-
-Long-lived, automatically reused
-
-Cross-channel: SMS, MMS, and Email all participate in the same thread
-
-Keyed by (customer_address, contact_address)
-
-Idempotency
-
-Inbound webhook deduplication on:
-
+```
 (provider_type, provider_message_id)
+```
 
+### Provider Abstraction
+Providers are injected via a registry:
 
-Prevents duplicate inserts on provider retries.
-
-Extensible Provider Abstraction
-
-Providers are pluggable through a registry:
-
+```python
 provider_registry = {
     "sms": SmsProvider(),
     "email": EmailProvider(),
 }
+```
 
+To add Twilio, SendGrid, WhatsApp, or others, implement the provider interface and register it.
 
-Adding Twilio, SendGrid, or WhatsApp requires only implementing the provider interface.
+---
 
-Architecture Overview
+# Architecture Overview
+
+```
 FastAPI Router Layer
- ├── /api/messages/*          → outbound send
+ ├── /api/messages/*          → outbound sends
  ├── /api/webhooks/*          → inbound callbacks
- └── /api/conversations/*     → retrieval
+ └── /api/conversations/*     → retrieval APIs
 
 Service Layer
- ├── ConversationService       → grouping, idempotency, contact resolution
- ├── ProviderRegistry          → pluggable providers
- └── MessageService            → persistence
+ ├── ConversationService       → grouping, contact resolution, idempotency
+ ├── ProviderRegistry          → pluggable provider abstraction
+ └── MessageService            → ORM persistence
 
 Data Layer
- ├── SQLAlchemy ORM            → Contacts, Conversations, Participants, Messages
+ ├── SQLAlchemy ORM Models     → Contacts, Conversations, Participants, Messages
  └── PostgreSQL (docker)       → relational persistence
+```
 
-Key Architectural Choices
+### Key Design Choices
+- Provider interface abstracts 3rd-party vendors  
+- Channel-agnostic conversation grouping  
+- Webhook idempotency guarantees exactly-once inserts  
+- UTC timestamps (`datetime.now(UTC)`)  
+- Hardened SQLAlchemy engine (pre-ping, pool recycle)
 
-Provider abstraction to support multiple messaging backends
+---
 
-Channel-agnostic conversation grouping
+# Setup (Full Version)
 
-Webhook idempotency ensures exactly-once inbound message handling
-
-UTC-aware timestamps
-
-Hardened SQLAlchemy engine (pre-ping, connection recycling)
-
-See Architecture.md for more detail.
-
-Setup (Full)
+```bash
 git clone <your-fork-url>
 cd messaging-service
 python -m venv .venv
-source .venv/bin/activate         # or .\.venv\Scripts\activate on Windows
+source .venv/bin/activate      # Windows: .\.venv\Scripts\activate
 pip install -r requirements.txt
 docker-compose up -d
 export DATABASE_URL=...
+```
 
-Extending the System
-Adding a New Provider
+---
 
-Implement the provider interface:
+# Extending the System
 
+### Add a New Provider
+
+1. Implement:
+
+```python
 class BaseProvider:
     def send(self, payload) -> ProviderResult:
-         ...
+        ...
+```
 
+2. Register:
 
-Register it:
-
+```python
 provider_registry["twilio"] = TwilioProvider()
+```
 
+No changes required to:
 
-No changes required in:
+- Conversations  
+- Models  
+- Webhook processing  
+- Message grouping logic  
 
-Conversations
+---
 
-Models
+# Production Considerations
 
-Webhooks
+Supported but out of scope for the take-home:
 
-Message grouping logic
+- Alembic migrations  
+- API authentication  
+- Webhook signature verification  
+- Delivery retry/backoff queues  
+- Structured logging  
+- Multi-tenant filtering  
+- Horizontal worker scaling  
 
-Production-Ready Considerations
+---
 
-Supported but not required for the take-home:
+# Summary
 
-Alembic migrations
+This implementation prioritizes:
 
-API authentication
+- Clear architectural separation  
+- Provider extensibility  
+- Robust idempotency  
+- UTC timestamps  
+- Cross-platform execution  
+- Straightforward evaluation experience  
 
-Webhook signature validation
-
-Retry/backoff queues
-
-Structured logging
-
-Deployment with multiple workers
-
-Multi-tenant filtering
-
-Summary
-
-This implementation emphasizes:
-
-Clear, modular architecture
-
-Clean provider extensibility
-
-Robust idempotency
-
-UTC-based timestamps
-
-Simple setup across macOS, Linux, and Windows
-
-Zero-surprise evaluation experience
-
-All necessary instructions, scripts, and tests are included for a complete review.
+All scripts and tests needed for a complete review are included.
