@@ -1,6 +1,8 @@
 from typing import Dict, Any
+from uuid import uuid4
 
-from app.services.providers.base import BaseProvider, ProviderResult
+from app.services.providers.base import BaseProvider
+from app.services.providers.types import ProviderResult, ProviderStatus
 
 
 class EmailProvider(BaseProvider):
@@ -9,4 +11,8 @@ class EmailProvider(BaseProvider):
     """
 
     def send(self, payload: Dict[str, Any]) -> ProviderResult:
-        return ProviderResult(success=True, provider_message_id="mock-email-id")
+        provider_id = f"email-{uuid4()}"
+        return ProviderResult(
+            status=ProviderStatus.SUCCESS,
+            provider_message_id=provider_id,
+        )

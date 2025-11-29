@@ -1,152 +1,323 @@
-# Backend Interview Project
+*** All tests were run in powershell on windows, but scripts should be the same ***
+Quick Start (macOS/Linux & Windows)
+1. Install dependencies
 
-This is a scaffold for Hatch's backend interview project. It includes basic setup for development, testing, and deployment.
+--macOS/Linux--
 
-## Guidelines
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-At Hatch, we work with several message providers to offer a unified way for our Customers to  communicate to their Contacts. Today we offer SMS, MMS, email, voice calls, and voicemail drops. Your task is to implement an HTTP service that supports the core messaging functionality of Hatch, on a much smaller scale. Specific instructions and guidelines on completing the project are below.
 
-### General Guidelines
+--Windows PowerShell--
 
-- You must use one of the following programming languages:
-  - **Python**
-  - **Golang**
-  - **Elixir**
-  - **Java**
-  - **Typescript/Javascript**
-  - **C/C++**
-- You may use whatever libraries or frameworks you'd like within your chosen language. We strongly encourage you to use whatever you're most familiar with so that you can showcase your skills and know-how.
-- You are welcome to use AI, Google, StackOverflow, etc as resources while you're developing. We just ask that you understand the code very well, because we will continue developing on it during your onsite interview.
-- For ease of assessment, we strongly encourage you to use the `start.sh` script provided in the `bin/` directory, and implement it to run your service. We will run this script to start your project during our assessment.
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
 
-### Project-specific guidelines
+2. Start PostgreSQL
+docker-compose up -d
 
-- Assume that a provider may return HTTP error codes like 500, 429 and plan accordingly
-- Conversations consist of messages from multiple providers. Feel free to consult providers such as Twilio or Sendgrid docs when designing your solution, but all external resources should be mocked out by your project. We do not expect you to actually integrate with a third party provider as part of this project.
-- It's OK to use Google or a coding assistant to produce your code. Just make sure you know it well, because the next step will be to code additional features in this codebase with us during your full interview.
+3. Set DATABASE_URL
 
-## Requirements
+--macOS/Linux--
 
-The service should implement:
+export DATABASE_URL="postgresql://messaging_user:messaging_password@127.0.0.1:5432/messaging_service"
 
-- **Unified Messaging API**: HTTP endpoints to send and receive messages from both SMS/MMS and Email providers
-  - Support sending messages through the appropriate provider based on message type
-  - Handle incoming webhook messages from both providers
-- **Conversation Management**: Messages should be automatically grouped into conversations based on participants (from/to addresses)
-- **Data Persistence**: All conversations and messages must be stored in a relational database with proper relationships and indexing
 
-### Providers
+--Windows PowerShell--
 
-**SMS & MMS**
+$env:DATABASE_URL = "postgresql://messaging_user:messaging_password@127.0.0.1:5432/messaging_service"
 
-**Example outbound payload to send an SMS or MMS**
+4. Start the API server
 
-```json
-{
-    "from": "from-phone-number",
-    "to": "to-phone-number",
-    "type": "mms" | "sms",
-    "body": "text message",
-    "attachments": ["attachment-url"] | [] | null,
-    "timestamp": "2024-11-01T14:00:00Z" // UTC timestamp
+--macOS/Linux--
+
+./bin/start.sh
+
+
+--Windows PowerShell--
+
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+
+5. Run end-to-end tests
+
+--macOS/Linux--
+
+./bin/test.sh
+
+
+--Windows PowerShell--
+
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\bin\test.ps1
+
+6. Run pytest suite
+pytest -q
+
+
+If you want to test db creation at startup run these in postgres
+
+drop table contacts cascade;
+drop table conversation_participants cascade;
+drop table messages cascade;
+drop table conversations cascade;
+
+Start the server again and retest (defaults to message_id=1 etc)
+--macOS/Linux--
+./bin/start.sh
+
+--Windows PowerShell--
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+
+
+
+
+
+
+Messaging Service — Take Home Implementation
+
+A provider-agnostic messaging microservice implemented in Python/FastAPI with PostgreSQL + SQLAlchemy.
+
+Supports:
+
+Outbound SMS + Email
+
+Inbound SMS + Email webhooks
+
+Long-lived conversation threads
+
+Contact normalization
+
+Provider idempotency
+
+Extensible provider architecture
+
+DB-backed tests (pytest)
+
+Cross-platform run instructions (Linux/macOS/Windows)
+
+This README contains everything required for an evaluator to run the service end-to-end with zero surprises.
+
+1. Features
+Messaging API
+
+POST /api/messages/sms
+
+POST /api/messages/email
+
+Webhooks
+
+POST /api/webhooks/sms
+
+POST /api/webhooks/email
+
+Conversations
+
+Long-lived threads keyed by (customer_address, contact_address)
+
+Channel-agnostic grouping (SMS, MMS, Email share the same conversation)
+
+Idempotency
+
+Inbound messages enforce unique (provider_type, provider_message_id) pairing to prevent duplicate inserts on provider retries.
+
+Extensible Provider Model
+
+Providers are registered via:
+
+provider_registry = {
+    "sms": SmsProvider(),
+    "email": EmailProvider(),
 }
-```
 
-**Example inbound SMS**
 
-```json
-{
-    "from": "+18045551234",
-    "to": "+12016661234",
-    "type": "sms",
-    "messaging_provider_id": "message-1",
-    "body": "text message",
-    "attachments": null,
-    "timestamp": "2024-11-01T14:00:00Z" // UTC timestamp
-}
-```
+New providers (Twilio, SendGrid, WhatsApp, Push) can be added by implementing a simple interface and dropping into the registry.
 
-**Example inbound MMS**
+2. Architecture Overview
+ FastAPI Router Layer
+ ├── /api/messages/*          → outbound send
+ ├── /api/webhooks/*          → inbound callbacks
+ └── /api/conversations/*     → retrieval
 
-```json
-{
-    "from": "+18045551234",
-    "to": "+12016661234",
-    "type": "mms",
-    "messaging_provider_id": "message-2",
-    "body": "text message",
-    "attachments": ["attachment-url"] | [],
-    "timestamp": "2024-11-01T14:00:00Z" // UTC timestamp
-}
-```
+ Service Layer
+ ├── ConversationService       → grouping, idempotency, contact resolution
+ ├── ProviderRegistry          → pluggable provider abstraction
+ └── MessageService            → persistence
 
-**Email Provider**
+ Data Layer
+ ├── SQLAlchemy ORM models     → Contacts, Conversations, Participants, Messages
+ └── PostgreSQL (docker)       → relational persistence
 
-**Example Inbound Email**
+Key Design Decisions
 
-```json
-{
-    "from": "[user@usehatchapp.com](mailto:user@usehatchapp.com)",
-    "to": "[contact@gmail.com](mailto:contact@gmail.com)",
-    "xillio_id": "message-2",
-    "body": "<html><body>html is <b>allowed</b> here </body></html>",  "attachments": ["attachment-url"] | [],
-    "timestamp": "2024-11-01T14:00:00Z" // UTC timestamp
-}
-```
+Provider abstraction layer (easily extends to new channels)
 
-**Example Email Payload**
+Channel-agnostic conversation grouping
 
-```json
-{
-    "from": "[user@usehatchapp.com](mailto:user@usehatchapp.com)",
-    "to": "[contact@gmail.com](mailto:contact@gmail.com)",
-    "body": "text message with or without html",
-    "attachments": ["attachment-url"] | [],
-    "timestamp": "2024-11-01T14:00:00Z" // UTC timestamp
-}
-```
+Webhook idempotency for guaranteed exactly-once inbound handling
 
-### Project Structure
+Timezone-aware timestamps (datetime.now(UTC))
 
-This project structure is laid out for you already. You are welcome to move or change things, just update the Makefile, scripts, and/or docker resources accordingly. As part of the evaluation of your code, we will run
+Hardened SQLAlchemy engine (pool pre-ping, pool recycle)
 
-```
-.
-├── bin/                    # Scripts and executables
-│   ├── start.sh           # Application startup script
-│   └── test.sh            # API testing script with curl commands
-├── docker-compose.yml      # PostgreSQL database setup
-├── Makefile               # Build and development commands with docker-compose integration
-└── README.md              # This file
-```
+See Architecture.md for a detailed breakdown.
 
-## Getting Started
+3. Setup & Installation
+Clone and install dependencies
+git clone <your-fork-url>
+cd messaging-service
 
-1. Clone the repository
-2. Run `make setup` to initialize the project
-3. Run `docker-compose up -d` to start the PostgreSQL database, or modify it to choose a database of your choice
-4. Run `make run` to start the application
-5. Run `make test` to run tests
+python -m venv .venv
+source .venv/bin/activate      # Windows: .\.venv\Scripts\activate
+pip install -r requirements.txt
 
-## Development
+4. Start PostgreSQL
+docker-compose up -d
 
-- Use `docker-compose up -d` to start the PostgreSQL database
-- Use `make run` to start the development server
-- Use `make test` to run tests
-- Use `docker-compose down` to stop the database
 
-## Database
+This launches a Postgres instance with:
 
-The application uses PostgreSQL as its database. The docker-compose.yml file sets up:
-- PostgreSQL 15 with Alpine Linux
-- Database: `messaging_service`
-- User: `messaging_user`
-- Password: `messaging_password`
-- Port: `5432` (exposed to host)
+user: messaging_user
 
-To connect to the database directly:
-```bash
-docker-compose exec postgres psql -U messaging_user -d messaging_service
-```
+password: messaging_password
 
-Again, you are welcome to make changes here, as long as they're in the docker-compose.yml
+database: messaging_service
+
+host: 127.0.0.1
+
+5. Environment Variable
+
+Before running the app or tests, set:
+
+macOS / Linux:
+export DATABASE_URL="postgresql://messaging_user:messaging_password@127.0.0.1:5432/messaging_service"
+
+Windows PowerShell:
+$env:DATABASE_URL = "postgresql://messaging_user:messaging_password@127.0.0.1:5432/messaging_service"
+
+6. Run the Application
+Unix (macOS / Linux):
+./bin/start.sh
+
+Windows PowerShell:
+.\.venv\Scripts\activate
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+
+
+You should see:
+
+Uvicorn running on http://0.0.0.0:8080
+
+Validate:
+curl http://127.0.0.1:8080/healthz
+# {"status":"ok"}
+
+7. Run End-to-End API Tests
+macOS / Linux:
+./bin/test.sh
+
+Windows PowerShell:
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\bin\test.ps1
+
+
+This exercises:
+
+Outbound SMS
+
+Outbound Email
+
+Inbound SMS webhook
+
+Inbound Email webhook
+
+Conversation listing
+
+Message listing
+
+8. Run Pytest Test Suite
+
+Pytest tests use Postgres directly via SQLAlchemy and clean the DB between test runs.
+
+pytest -q
+
+
+Tests cover:
+
+Conversation reuse
+
+Conversation separation
+
+Webhook idempotency
+
+Timestamp correctness
+
+All timestamps use timezone-aware UTC:
+
+datetime.now(UTC)
+
+9. Extending the System
+Add a new provider (Twilio, SendGrid, WhatsApp, Slack DM)
+
+Implement:
+
+class BaseProvider:
+    def send(self, payload) -> ProviderResult:
+         ...
+
+
+Add to registry:
+
+provider_registry["twilio"] = TwilioProvider()
+
+
+Add outbound route (optional).
+
+No changes needed to:
+
+Conversation logic
+
+Models
+
+Webhook processing
+
+This is a key architectural advantage.
+
+10. Production Considerations
+
+In real deployment, you would layer on:
+
+Alembic migrations
+
+API auth
+
+Webhook signature verification
+
+Retry queues (Celery, BackgroundTasks, or SQS)
+
+Structured logging
+
+Background provider delivery
+
+Multi-tenant DB filtering
+
+Horizontal scaling (FastAPI workers, PG pool tuning)
+
+These were not required for the take-home but the system structure cleanly supports them.
+
+11. Summary
+
+This implementation focuses on:
+
+Clean architecture
+
+Clear separation of responsibility
+
+Strong extensibility
+
+Production-minded behaviors (idempotency, UTC timestamps)
+
+A frictionless evaluation experience
+
+All components — API, DB, tests, and helper scripts — are designed for clarity and ease of review.

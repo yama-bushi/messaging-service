@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from datetime import datetime
 
 from app.db import get_db
 from app.schemas import ConversationSummary, MessageDTO
@@ -14,7 +13,6 @@ conversation_service = ConversationService()
 @router.get("/", response_model=list[ConversationSummary])
 def list_conversations(db: Session = Depends(get_db)):
     rows = conversation_service.list_conversations(db)
-    # Convert dicts into DTOs
     return [
         ConversationSummary(id=row["id"], last_updated=row["last_updated"])
         for row in rows
@@ -27,7 +25,6 @@ def get_conversation_messages(
     db: Session = Depends(get_db),
 ):
     rows = conversation_service.list_messages_for_conversation(db, conversation_id)
-    # For now, return empty list; Commit 3 will give real messages
     return [
         MessageDTO(
             id=row["id"],
